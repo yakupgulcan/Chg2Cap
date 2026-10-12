@@ -108,7 +108,9 @@ python train.py --data_folder ./datasets/LEVIR_CC/images --savepath ./runs/exper
 ```
 
 Resume starts at the next epoch and does not restore within-epoch progress or
-random generator states. If interrupted during validation, that epoch's
+random generator states. Batch shuffling and dropout may therefore differ from
+uninterrupted training; identical numerical results are not guaranteed. Learned
+weights and optimizer/scheduler states are retained. If interrupted during validation, that epoch's
 validation is not replayed. Weight-only checkpoints support evaluation but do
 not contain optimizer/scheduler state for resume.
 
@@ -133,14 +135,25 @@ scripts.
 The notebook retains Colab's installed PyTorch/torchvision pair and installs
 additional packages from `requirements-colab.txt`. It checks GPU and METEOR
 availability and provides a small training, resume and evaluation smoke check.
-Code and images use runtime storage; checkpoints, logs, prepared split lists,
+Code, images and working checkpoints use runtime storage; uploaded checkpoints,
+logs, prepared split lists,
 vocabulary and evaluation results are saved to Google Drive. Environment records
 include Python, PyTorch, torchvision, CUDA build, GPU/driver and Git commit.
 
 For recovery in a new runtime, reuse the experiment name, enable `RESUME`, and
-set the total epoch count beyond the completed count. Colab runtimes vary; run
-the smoke check before a full training job. The Colab workflow has not yet been
-validated end to end.
+set the total epoch count beyond the completed count. Checkpoints are downloaded
+from Drive and verified before loading. Colab runtimes vary; run the smoke check
+before a full training job.
+
+The notebook authenticates the Drive API and passes `--drive_checkpoint_folder_id`
+to training with a local `--savepath`. Each upload is verified by size and MD5
+checksum before the previous `last.pth` or `best.pth` in that experiment's
+checkpoint folder is permanently deleted. Previous files do not enter the trash.
+Upload or deletion errors stop training; the verified new checkpoint remains
+available if deletion fails. Allow storage for both copies during replacement.
+Existing trash and other experiment folders are left untouched. Use one training
+process per experiment folder. Smoke-check checkpoints stay on runtime storage;
+training records are copied to Drive when the training cell exits.
 
 ### Paper
 **[Changes to Captions: An Attentive Network for Remote Sensing Change Captioning](https://arxiv.org/abs/2304.01091)**

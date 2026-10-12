@@ -38,6 +38,18 @@ def main(args):
     write_json(os.path.join(args.savepath, 'config.json'), vars(args))
     best_bleu4 = 0.0
     start_epoch = 0
+    drive_store = None
+    if args.drive_checkpoint_folder_id:
+        if os.path.realpath(args.savepath).startswith('/content/drive/'):
+            raise ValueError('Drive API checkpoint uploads require a local --savepath outside /content/drive.')
+        from drive_checkpoints import DriveCheckpoints
+        drive_store = DriveCheckpoints(args.drive_checkpoint_folder_id)
+
+    def save_checkpoint(name, state):
+        path = os.path.join(args.savepath, name)
+        save_state(path, state)
+        if drive_store is not None:
+            drive_store.upload(path)
     with open(os.path.join(args.list_path + args.vocab_file + '.json'), 'r') as f:
         word_vocab = json.load(f)
     # Initialize / load checkpoint
@@ -186,7 +198,7 @@ def main(args):
         if encoder_lr_scheduler is not None:
             encoder_lr_scheduler.step()
             #print(encoder_optimizer.param_groups[0]['lr'])
-        save_state(os.path.join(args.savepath, 'last.pth'), training_state(epoch))
+        save_checkpoint('last.pth', training_state(epoch))
         # One epoch's validation
         decoder.eval()  # eval mode (no dropout or batchnorm)
         encoder_trans.eval()
@@ -252,8 +264,8 @@ def main(args):
             print('Save Model')
             weights = {'encoder_dict': encoder.state_dict(), 'encoder_trans_dict': encoder_trans.state_dict(),
                        'decoder_dict': decoder.state_dict(), 'config': vars(args).copy(), 'vocab': word_vocab}
-            save_state(os.path.join(args.savepath, 'best.pth'), weights)
-        save_state(os.path.join(args.savepath, 'last.pth'), training_state(epoch))
+            save_checkpoint('best.pth', weights)
+        save_checkpoint('last.pth', training_state(epoch))
 
 
 if __name__ == '__main__':
@@ -294,6 +306,8 @@ if __name__ == '__main__':
     # Validation
     parser.add_argument('--val_batchsize', type=int, default=1, help='batch_size for validation')
     parser.add_argument('--savepath', default="./models_checkpoint/")
+    parser.add_argument('--drive_checkpoint_folder_id', default=None,
+                        help='Optional Drive folder ID: upload verified checkpoints and permanently delete prior copies. Use a local savepath.')
     # Model parameters
     parser.add_argument('--n_heads', type=int, default=8, help='Multi-head attention in Transformer.')
     parser.add_argument('--n_layers', type=int, default=3)
