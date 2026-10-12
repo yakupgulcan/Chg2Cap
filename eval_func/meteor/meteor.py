@@ -24,7 +24,9 @@ class Meteor:
             raise FileNotFoundError('METEOR resource missing: ' + resource)
         self.env = os.environ.copy()
         self.env['LC_ALL'] = 'en_US.UTF_8'
-        self.meteor_cmd = ['java', '-Duser.language=en', '-Duser.country=US', '-Xmx2G', '-jar', METEOR_JAR, \
+        # Reserve stdout for METEOR's protocol; JVM diagnostics belong on stderr.
+        self.meteor_cmd = ['java', '-Xlog:disable', '-Xlog:all=warning:stderr',
+                           '-Duser.language=en', '-Duser.country=US', '-Xmx2G', '-jar', METEOR_JAR, \
                            '-', '-', '-stdio', '-l', 'en', '-norm']
         self.meteor_p = subprocess.Popen(self.meteor_cmd, \
                                          cwd=os.path.dirname(os.path.abspath(__file__)), \
