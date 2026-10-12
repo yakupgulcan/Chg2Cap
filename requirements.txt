@@ -1,14 +1,14 @@
-torch==1.11.0+cu113
-torchvision==0.12.0+cu113
-pip==21.0.1 
-numpy==1.23.0 
-lmdb==1.0.0 
-h5py==2.10.0 
-matplotlib==3.3.4 
-opencv-python==4.5.5.64 
-Pillow==8.2.0 
-tensorboard==2.9.0 
-protobuf==3.20.0 
-scikit-image==0.18.0 
-scikit-learn==0.24.1 
-einops==0.4.1
+# Chg2Cap training and preprocessing
+# Target environment: Python 3.11, Windows/Linux, NVIDIA CUDA 12.1
+# Install the matched CUDA-enabled PyTorch pair first:
+# python -m pip install torch==2.2.2 torchvision==0.17.2 --index-url https://download.pytorch.org/whl/cu121
+# Then: python -m pip install -r requirements.txt
+# Java must also be available on PATH for METEOR validation.
+
+torch==2.2.2
+torchvision==0.17.2
+# Keep NumPy below 2 for this PyTorch version.
+numpy==1.26.4
+imageio==2.34.2
+Pillow==10.4.0
+einops==0.7.0

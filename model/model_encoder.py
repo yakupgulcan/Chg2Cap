@@ -8,63 +8,63 @@ class Encoder(nn.Module):
     Encoder.
     """
 
-    def __init__(self, network):
+    def __init__(self, network, pretrained=True):
         super(Encoder, self).__init__()
         self.network = network
         if self.network=='alexnet': #256,7,7
-            cnn = models.alexnet(pretrained=True)
+            cnn = models.alexnet(weights="IMAGENET1K_V1" if pretrained else None)
             modules = list(cnn.children())[:-2]
         elif self.network=='vgg11': #512,1/32H,1/32W
-            cnn = models.vgg11(pretrained=True)  
+            cnn = models.vgg11(weights="IMAGENET1K_V1" if pretrained else None)
             modules = list(cnn.children())[:-2]
         elif self.network=='vgg16': #512,1/32H,1/32W
-            cnn = models.vgg16(pretrained=True)  
+            cnn = models.vgg16(weights="IMAGENET1K_V1" if pretrained else None)
             modules = list(cnn.children())[:-2]
         elif self.network=='vgg19':#512,1/32H,1/32W
-            cnn = models.vgg19(pretrained=True)  
+            cnn = models.vgg19(weights="IMAGENET1K_V1" if pretrained else None)
             modules = list(cnn.children())[:-2]
         elif self.network=='inception': #2048,6,6
-            cnn = models.inception_v3(pretrained=True, aux_logits=False)  
+            cnn = models.inception_v3(weights="IMAGENET1K_V1" if pretrained else None, aux_logits=False)
             modules = list(cnn.children())[:-3]
         elif self.network=='resnet18': #512,1/32H,1/32W
-            cnn = models.resnet18(pretrained=True)  
+            cnn = models.resnet18(weights="IMAGENET1K_V1" if pretrained else None)
             modules = list(cnn.children())[:-2]
         elif self.network=='resnet34': #512,1/32H,1/32W
-            cnn = models.resnet34(pretrained=True)  
+            cnn = models.resnet34(weights="IMAGENET1K_V1" if pretrained else None)
             modules = list(cnn.children())[:-2]
         elif self.network=='resnet50': #2048,1/32H,1/32W
-            cnn = models.resnet50(pretrained=True)  
+            cnn = models.resnet50(weights="IMAGENET1K_V1" if pretrained else None)
             modules = list(cnn.children())[:-2]
         elif self.network=='resnet101':  #2048,1/32H,1/32W
-            cnn = models.resnet101(pretrained=True)  
+            cnn = models.resnet101(weights="IMAGENET1K_V1" if pretrained else None)
             # Remove linear and pool layers (since we're not doing classification)
             modules = list(cnn.children())[:-2]
         elif self.network=='resnet152': #512,1/32H,1/32W
-            cnn = models.resnet152(pretrained=True)  
+            cnn = models.resnet152(weights="IMAGENET1K_V1" if pretrained else None)
             modules = list(cnn.children())[:-2]
         elif self.network=='resnext50_32x4d': #2048,1/32H,1/32W
-            cnn = models.resnext50_32x4d(pretrained=True)  
+            cnn = models.resnext50_32x4d(weights="IMAGENET1K_V1" if pretrained else None)
             modules = list(cnn.children())[:-2]
         elif self.network=='resnext101_32x8d':#2048,1/256H,1/256W
-            cnn = models.resnext101_32x8d(pretrained=True)  
+            cnn = models.resnext101_32x8d(weights="IMAGENET1K_V1" if pretrained else None)
             modules = list(cnn.children())[:-1]
         elif self.network=='densenet121': #no AdaptiveAvgPool2d #1024,1/32H,1/32W
-            cnn = models.densenet121(pretrained=True) 
+            cnn = models.densenet121(weights="IMAGENET1K_V1" if pretrained else None)
             modules = list(cnn.children())[:-1] 
         elif self.network=='densenet169': #1664,1/32H,1/32W
-            cnn = models.densenet169(pretrained=True)  
+            cnn = models.densenet169(weights="IMAGENET1K_V1" if pretrained else None)
             modules = list(cnn.children())[:-1]
         elif self.network=='densenet201': #1920,1/32H,1/32W
-            cnn = models.densenet201(pretrained=True)  
+            cnn = models.densenet201(weights="IMAGENET1K_V1" if pretrained else None)
             modules = list(cnn.children())[:-1]
         elif self.network=='regnet_x_400mf': #400,1/32H,1/32W
-            cnn = models.regnet_x_400mf(pretrained=True)  
+            cnn = models.regnet_x_400mf(weights="IMAGENET1K_V1" if pretrained else None)
             modules = list(cnn.children())[:-2]
         elif self.network=='regnet_x_8gf': #1920,1/32H,1/32W
-            cnn = models.regnet_x_8gf(pretrained=True)  
+            cnn = models.regnet_x_8gf(weights="IMAGENET1K_V1" if pretrained else None)
             modules = list(cnn.children())[:-2]
         elif self.network=='regnet_x_16gf': #2048,1/32H,1/32W
-            cnn = models.regnet_x_16gf(pretrained=True) 
+            cnn = models.regnet_x_16gf(weights="IMAGENET1K_V1" if pretrained else None)
             modules = list(cnn.children())[:-2]
 
         self.cnn = nn.Sequential(*modules)
