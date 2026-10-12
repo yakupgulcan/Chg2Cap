@@ -12,6 +12,7 @@ from data.Dubai_CC.DubaiCC import DubaiCCDataset
 from model.model_encoder import Encoder, AttentiveEncoder
 from model.model_decoder import DecoderTransformer
 from utils import *
+from runtime import environment_info, load_state, save_state, validate_checkpoint, write_json
 
 def main(args):
     """
@@ -19,40 +20,39 @@ def main(args):
     """
     os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID"
     os.environ["CUDA_VISIBLE_DEVICES"] = str(args.gpu_id)  
+    # Check the Java metric before spending an epoch on training.
+    meteor_check = Meteor()
+    try:
+        meteor_check.compute_score([['1 2 3']], [['1 2 3']])
+    finally:
+        meteor_check.close()
     if os.path.exists(args.savepath)==False:
         os.makedirs(args.savepath)
-    best_bleu4 = 0.4  # BLEU-4 score right now
+    if not torch.cuda.is_available():
+        raise RuntimeError('CUDA GPU required.')
+    if args.val_batchsize != 1:
+        raise ValueError('Validation caption generation requires --val_batchsize 1.')
+    args.list_path = os.path.join(args.list_path, '')
+    args.token_folder = os.path.join(args.token_folder, '')
+    write_json(os.path.join(args.savepath, 'environment.json'), environment_info())
+    write_json(os.path.join(args.savepath, 'config.json'), vars(args))
+    best_bleu4 = 0.0
     start_epoch = 0
     with open(os.path.join(args.list_path + args.vocab_file + '.json'), 'r') as f:
         word_vocab = json.load(f)
     # Initialize / load checkpoint
-    if args.checkpoint is None:      
-        encoder = Encoder(args.network)   
-        encoder.fine_tune(args.fine_tune_encoder)     
-        encoder_optimizer = torch.optim.Adam(params=encoder.parameters(),
-                                            lr=args.encoder_lr) if args.fine_tune_encoder else None
-        encoder_trans = AttentiveEncoder(n_layers =args.n_layers, feature_size=[args.feat_size, args.feat_size, args.encoder_dim], 
-                                            heads=args.n_heads, hidden_dim=args.hidden_dim, attention_dim=args.attention_dim, dropout=args.dropout)
-        encoder_trans_optimizer = torch.optim.Adam(params=filter(lambda p: p.requires_grad, encoder_trans.parameters()),
-                                            lr=args.encoder_lr)
-        decoder = DecoderTransformer(encoder_dim=args.encoder_dim, feature_dim=args.feature_dim, vocab_size=len(word_vocab), max_lengths=args.max_length, word_vocab=word_vocab, n_head=args.n_heads,
-                                    n_layers= args.decoder_n_layers, dropout=args.dropout)
-        decoder_optimizer = torch.optim.Adam(params=filter(lambda p: p.requires_grad, decoder.parameters()),
-                                            lr=args.decoder_lr)
-    else:
-        checkpoint = torch.load(args.checkpoint)
-        start_epoch = checkpoint['epoch'] + 1
-        best_bleu4 = checkpoint['bleu-4']
-        decoder = checkpoint['decoder']
-        decoder_optimizer = checkpoint['decoder_optimizer']
-        encoder_trans = checkpoint['encoder_trans']
-        encoder_trans_optimizer = checkpoint['encoder_trans_optimizer']
-        encoder = checkpoint['encoder']
-        encoder_optimizer = checkpoint['encoder_optimizer']
-        if args.fine_tune_encoder is True and encoder_optimizer is None:
-            encoder.fine_tune(args.fine_tune_encoder)
-            encoder_optimizer = torch.optim.Adam(params=filter(lambda p: p.requires_grad, encoder.parameters()),
-                                            lr=args.encoder_lr)
+    encoder = Encoder(args.network, pretrained=args.checkpoint is None)
+    encoder.fine_tune(args.fine_tune_encoder)
+    encoder_optimizer = torch.optim.Adam(params=encoder.parameters(),
+                                        lr=args.encoder_lr) if args.fine_tune_encoder else None
+    encoder_trans = AttentiveEncoder(n_layers =args.n_layers, feature_size=[args.feat_size, args.feat_size, args.encoder_dim],
+                                        heads=args.n_heads, hidden_dim=args.hidden_dim, attention_dim=args.attention_dim, dropout=args.dropout)
+    encoder_trans_optimizer = torch.optim.Adam(params=filter(lambda p: p.requires_grad, encoder_trans.parameters()),
+                                        lr=args.encoder_lr)
+    decoder = DecoderTransformer(encoder_dim=args.encoder_dim, feature_dim=args.feature_dim, vocab_size=len(word_vocab), max_lengths=args.max_length, word_vocab=word_vocab, n_head=args.n_heads,
+                                n_layers= args.decoder_n_layers, dropout=args.dropout)
+    decoder_optimizer = torch.optim.Adam(params=filter(lambda p: p.requires_grad, decoder.parameters()),
+                                        lr=args.decoder_lr)
     # Move to GPU, if available
     encoder = encoder.cuda()
     encoder_trans = encoder_trans.cuda()
@@ -79,6 +79,38 @@ def main(args):
     encoder_lr_scheduler = torch.optim.lr_scheduler.StepLR(encoder_optimizer, step_size=5, gamma=0.5) if args.fine_tune_encoder else None
     encoder_trans_lr_scheduler = torch.optim.lr_scheduler.StepLR(encoder_trans_optimizer, step_size=5, gamma=0.5)
     decoder_lr_scheduler = torch.optim.lr_scheduler.StepLR(decoder_optimizer, step_size=5, gamma=0.5)
+    checkpoint = None
+    if args.checkpoint:
+        checkpoint = load_state(args.checkpoint)
+        validate_checkpoint(checkpoint, args, word_vocab)
+        for name, model in [('encoder', encoder), ('encoder_trans', encoder_trans), ('decoder', decoder)]:
+            model.load_state_dict(checkpoint[name + '_dict'])
+        if 'epoch' not in checkpoint or 'decoder_optimizer' not in checkpoint:
+            raise ValueError('This checkpoint contains inference weights only; use last.pth to resume.')
+        for name, optimizer in [('encoder', encoder_optimizer), ('encoder_trans', encoder_trans_optimizer), ('decoder', decoder_optimizer)]:
+            if optimizer is not None:
+                optimizer.load_state_dict(checkpoint[name + '_optimizer'])
+        for name, scheduler in [('encoder', encoder_lr_scheduler), ('encoder_trans', encoder_trans_lr_scheduler), ('decoder', decoder_lr_scheduler)]:
+            if scheduler is not None:
+                scheduler.load_state_dict(checkpoint[name + '_scheduler'])
+        start_epoch = checkpoint['epoch'] + 1
+        best_bleu4 = checkpoint['best_bleu4']
+        del checkpoint
+    if start_epoch >= args.num_epochs:
+        raise ValueError('--num_epochs must exceed the completed epoch count in last.pth.')
+
+    def training_state(epoch):
+        return {
+            'epoch': epoch, 'best_bleu4': best_bleu4, 'config': vars(args).copy(), 'vocab': word_vocab,
+            'encoder_dict': encoder.state_dict(), 'encoder_trans_dict': encoder_trans.state_dict(),
+            'decoder_dict': decoder.state_dict(),
+            'encoder_optimizer': encoder_optimizer.state_dict() if encoder_optimizer else None,
+            'encoder_trans_optimizer': encoder_trans_optimizer.state_dict(),
+            'decoder_optimizer': decoder_optimizer.state_dict(),
+            'encoder_scheduler': encoder_lr_scheduler.state_dict() if encoder_lr_scheduler else None,
+            'encoder_trans_scheduler': encoder_trans_lr_scheduler.state_dict(),
+            'decoder_scheduler': decoder_lr_scheduler.state_dict(),
+        }
     l_resizeA = torch.nn.Upsample(size = (256, 256), mode ='bilinear', align_corners = True)
     l_resizeB = torch.nn.Upsample(size = (256, 256), mode ='bilinear', align_corners = True)
     index_i = 0
@@ -105,8 +137,9 @@ def main(args):
             if args.data_name == 'Dubai_CC':
                 imgA = l_resizeA(imgA)
                 imgB = l_resizeB(imgB)
-            token = token.squeeze(1).cuda()
-            token_len = token_len.cuda()
+            # NumPy's default integer width varies by platform; loss targets must be int64.
+            token = token.squeeze(1).to(device='cuda', dtype=torch.long)
+            token_len = token_len.to(device='cuda', dtype=torch.long)
             # Forward prop.
             feat1, feat2 = encoder(imgA, imgB)         
             feat1, feat2 = encoder_trans(feat1, feat2)
@@ -143,9 +176,17 @@ def main(args):
                     'Batch Time: {3:.3f}\t'
                     'Loss: {4:.4f}\t'
                     'Top-5 Accuracy: {5:.3f}'.format(epoch, index_i, args.num_epochs*len(train_loader),
-                                            np.mean(hist[index_i-args.print_freq:index_i-1,0])*args.print_freq,
-                                            np.mean(hist[index_i-args.print_freq:index_i-1,1]),
-                                            np.mean(hist[index_i-args.print_freq:index_i-1,2])))
+                                            np.mean(hist[index_i-args.print_freq:index_i,0])*args.print_freq,
+                                            np.mean(hist[index_i-args.print_freq:index_i,1]),
+                                            np.mean(hist[index_i-args.print_freq:index_i,2])))
+        #Adjust learning rate
+        decoder_lr_scheduler.step()
+        #print(decoder_optimizer.param_groups[0]['lr'])
+        encoder_trans_lr_scheduler.step()
+        if encoder_lr_scheduler is not None:
+            encoder_lr_scheduler.step()
+            #print(encoder_optimizer.param_groups[0]['lr'])
+        save_state(os.path.join(args.savepath, 'last.pth'), training_state(epoch))
         # One epoch's validation
         decoder.eval()  # eval mode (no dropout or batchnorm)
         encoder_trans.eval()
@@ -198,38 +239,28 @@ def main(args):
             Bleu_2 = score_dict['Bleu_2']
             Bleu_3 = score_dict['Bleu_3']
             Bleu_4 = score_dict['Bleu_4']
-            Meteor = score_dict['METEOR']
+            meteor_score = score_dict['METEOR']
             Rouge = score_dict['ROUGE_L']
             Cider = score_dict['CIDEr']
             print('Validation:\n' 'Time: {0:.3f}\t' 'BLEU-1: {1:.4f}\t' 'BLEU-2: {2:.4f}\t' 'BLEU-3: {3:.4f}\t' 
                 'BLEU-4: {4:.4f}\t' 'Meteor: {5:.4f}\t' 'Rouge: {6:.4f}\t' 'Cider: {7:.4f}\t'
-                .format(val_time, Bleu_1, Bleu_2, Bleu_3, Bleu_4, Meteor, Rouge, Cider))
+                .format(val_time, Bleu_1, Bleu_2, Bleu_3, Bleu_4, meteor_score, Rouge, Cider))
         
-        #Adjust learning rate
-        decoder_lr_scheduler.step()
-        #print(decoder_optimizer.param_groups[0]['lr'])
-        encoder_trans_lr_scheduler.step()
-        if encoder_lr_scheduler is not None:
-            encoder_lr_scheduler.step()
-            #print(encoder_optimizer.param_groups[0]['lr'])
-        # Check if there was an improvement        
-        if  Bleu_4 > best_bleu4:
-            best_bleu4 = max(Bleu_4, best_bleu4)
-            #save_checkpoint                
-            print('Save Model')  
-            state = {'encoder_dict': encoder.state_dict(), 
-                    'encoder_trans_dict': encoder_trans.state_dict(),   
-                    'decoder_dict': decoder.state_dict()
-                    }                     
-            model_name = str(args.data_name)+'_batchsize_'+str(args.train_batchsize)+'_'+str(args.network)+'Bleu_4_'+str(round(10000*best_bleu4))+'.pth'
-            torch.save(state, os.path.join(args.savepath, model_name))
+        write_json(os.path.join(args.savepath, f'validation_epoch_{epoch:03d}.json'), score_dict)
+        if Bleu_4 > best_bleu4:
+            best_bleu4 = Bleu_4
+            print('Save Model')
+            weights = {'encoder_dict': encoder.state_dict(), 'encoder_trans_dict': encoder_trans.state_dict(),
+                       'decoder_dict': decoder.state_dict(), 'config': vars(args).copy(), 'vocab': word_vocab}
+            save_state(os.path.join(args.savepath, 'best.pth'), weights)
+        save_state(os.path.join(args.savepath, 'last.pth'), training_state(epoch))
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Remote_Sensing_Image_Changes_to_Captions')
 
     # Data parameters
-    parser.add_argument('--data_folder', default='/root/Data/LEVIR_CC/images',help='folder with data files')
+    parser.add_argument('--data_folder', default='./datasets/LEVIR_CC/images',help='folder with data files')
     parser.add_argument('--list_path', default='./data/LEVIR_CC/', help='path of the data lists')
     parser.add_argument('--token_folder', default='./data/LEVIR_CC/tokens/', help='folder with token files')
     parser.add_argument('--vocab_file', default='vocab', help='path of the data lists')
@@ -249,11 +280,11 @@ if __name__ == '__main__':
     parser.add_argument('--checkpoint', default=None, help='path to checkpoint, None if none.')
     parser.add_argument('--print_freq',type=int, default=100, help='print training/validation stats every __ batches')
     # Training parameters
-    parser.add_argument('--fine_tune_encoder', type=bool, default=True, help='whether fine-tune encoder or not')    
+    parser.add_argument('--fine_tune_encoder', type=lambda value: {'true': True, 'false': False}[value.lower()], default=True, help='whether fine-tune encoder or not')
     parser.add_argument('--train_batchsize', type=int, default=32, help='batch_size for training')
     parser.add_argument('--network', default='resnet101', help='define the encoder to extract features')
-    parser.add_argument('--encoder_dim',default=2048, help='the dimension of extracted features using different network')
-    parser.add_argument('--feat_size', default=16, help='define the output size of encoder to extract features')
+    parser.add_argument('--encoder_dim',type=int, default=2048, help='the dimension of extracted features using different network')
+    parser.add_argument('--feat_size', type=int, default=16, help='define the output size of encoder to extract features')
     parser.add_argument('--num_epochs', type=int, default=50, help='number of epochs to train for (if early stopping is not triggered).')
     parser.add_argument('--workers', type=int, default=2, help='for data-loading; right now, only 0 works with h5pys in windows.')
     parser.add_argument('--encoder_lr', type=float, default=1e-4, help='learning rate for encoder if fine-tuning.')
