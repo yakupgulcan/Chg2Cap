@@ -6,6 +6,7 @@ from torch.nn.utils.rnn import pack_padded_sequence
 from torch.utils import data
 import argparse
 import json
+import random
 #import torchvision.transforms as transforms
 from data.LEVIR_CC.LEVIRCC import LEVIRCCDataset
 from data.Dubai_CC.DubaiCC import DubaiCCDataset
@@ -20,6 +21,15 @@ def main(args):
     """
     os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID"
     os.environ["CUDA_VISIBLE_DEVICES"] = str(args.gpu_id)  
+    if args.patience < 0:
+        raise ValueError('--patience must be non-negative (0 disables early stopping).')
+    if args.seed is not None:
+        random.seed(args.seed)
+        np.random.seed(args.seed)
+        torch.manual_seed(args.seed)
+        torch.cuda.manual_seed_all(args.seed)
+        torch.backends.cudnn.benchmark = False
+    # A seed fixes initial RNG states, but does not guarantee deterministic CUDA kernels.
     # Check the Java metric before spending an epoch on training.
     meteor_check = Meteor()
     try:
@@ -38,6 +48,8 @@ def main(args):
     write_json(os.path.join(args.savepath, 'config.json'), vars(args))
     best_bleu4 = 0.0
     start_epoch = 0
+    epochs_without_improvement = 0
+    best_epoch = None
     drive_store = None
     if args.drive_checkpoint_folder_id:
         if os.path.realpath(args.savepath).startswith('/content/drive/'):
@@ -107,13 +119,18 @@ def main(args):
                 scheduler.load_state_dict(checkpoint[name + '_scheduler'])
         start_epoch = checkpoint['epoch'] + 1
         best_bleu4 = checkpoint['best_bleu4']
+        epochs_without_improvement = checkpoint.get('epochs_without_improvement', 0)
+        best_epoch = checkpoint.get('best_epoch')
         del checkpoint
     if start_epoch >= args.num_epochs:
         raise ValueError('--num_epochs must exceed the completed epoch count in last.pth.')
+    if args.patience and epochs_without_improvement >= args.patience:
+        raise ValueError('Checkpoint already reached early-stopping patience; increase --patience or use 0 to continue.')
 
     def training_state(epoch):
         return {
             'epoch': epoch, 'best_bleu4': best_bleu4, 'config': vars(args).copy(), 'vocab': word_vocab,
+            'best_epoch': best_epoch, 'epochs_without_improvement': epochs_without_improvement,
             'encoder_dict': encoder.state_dict(), 'encoder_trans_dict': encoder_trans.state_dict(),
             'decoder_dict': decoder.state_dict(),
             'encoder_optimizer': encoder_optimizer.state_dict() if encoder_optimizer else None,
@@ -130,6 +147,13 @@ def main(args):
     # Epochs
 
     for epoch in range(start_epoch, args.num_epochs):        
+        learning_rates = {
+            name: [group['lr'] for group in optimizer.param_groups]
+            for name, optimizer in [('encoder', encoder_optimizer),
+                                    ('encoder_trans', encoder_trans_optimizer),
+                                    ('decoder', decoder_optimizer)] if optimizer is not None
+        }
+        print(f'Epoch {epoch}: learning rates {learning_rates}', flush=True)
         # Batches
         for id, (imgA, imgB, _, _, token, token_len, _) in enumerate(train_loader):
             #if id == 20:
@@ -261,11 +285,26 @@ def main(args):
         write_json(os.path.join(args.savepath, f'validation_epoch_{epoch:03d}.json'), score_dict)
         if Bleu_4 > best_bleu4:
             best_bleu4 = Bleu_4
+            best_epoch = epoch
+            epochs_without_improvement = 0
             print('Save Model')
             weights = {'encoder_dict': encoder.state_dict(), 'encoder_trans_dict': encoder_trans.state_dict(),
-                       'decoder_dict': decoder.state_dict(), 'config': vars(args).copy(), 'vocab': word_vocab}
+                       'decoder_dict': decoder.state_dict(), 'config': vars(args).copy(), 'vocab': word_vocab,
+                       'epoch': epoch, 'best_bleu4': best_bleu4}
             save_checkpoint('best.pth', weights)
+        else:
+            epochs_without_improvement += 1
+        write_json(os.path.join(args.savepath, f'training_epoch_{epoch:03d}.json'), {
+            'epoch': epoch, 'learning_rates': learning_rates, 'validation': score_dict,
+            'best_epoch': best_epoch, 'best_bleu4': best_bleu4,
+            'epochs_without_improvement': epochs_without_improvement,
+            'patience': args.patience,
+        })
         save_checkpoint('last.pth', training_state(epoch))
+        if args.patience and epochs_without_improvement >= args.patience:
+            print(f'Early stopping: no validation BLEU-4 improvement for {args.patience} epochs. '
+                  f'Best epoch: {best_epoch}, BLEU-4: {best_bleu4:.4f}', flush=True)
+            break
 
 
 if __name__ == '__main__':
@@ -298,6 +337,8 @@ if __name__ == '__main__':
     parser.add_argument('--encoder_dim',type=int, default=2048, help='the dimension of extracted features using different network')
     parser.add_argument('--feat_size', type=int, default=16, help='define the output size of encoder to extract features')
     parser.add_argument('--num_epochs', type=int, default=50, help='number of epochs to train for (if early stopping is not triggered).')
+    parser.add_argument('--seed', type=int, default=None, help='Initial Python, NumPy and PyTorch seed; RNG states are not restored on resume.')
+    parser.add_argument('--patience', type=int, default=0, help='Stop after this many consecutive epochs without validation BLEU-4 improvement; 0 disables.')
     parser.add_argument('--workers', type=int, default=2, help='for data-loading; right now, only 0 works with h5pys in windows.')
     parser.add_argument('--encoder_lr', type=float, default=1e-4, help='learning rate for encoder if fine-tuning.')
     parser.add_argument('--decoder_lr', type=float, default=1e-4, help='learning rate for decoder.')

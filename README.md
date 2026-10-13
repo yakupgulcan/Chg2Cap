@@ -114,6 +114,22 @@ weights and optimizer/scheduler states are retained. If interrupted during valid
 validation is not replayed. Weight-only checkpoints support evaluation but do
 not contain optimizer/scheduler state for resume.
 
+For a fresh experiment with a fixed initial seed and early stopping:
+
+```bash
+python train.py --data_folder ./datasets/LEVIR_CC/images --savepath ./runs/seed123/checkpoints --train_batchsize 32 --num_epochs 50 --seed 123 --patience 10
+```
+
+`--patience` counts consecutive epochs without a strictly higher validation
+BLEU-4 score; 0 disables early stopping (the CLI default). Training saves the
+last checkpoint before stopping. The counter and best epoch are restored on
+resume; older checkpoints without these fields start the counter at zero.
+`training_epoch_XXX.json` records the learning rates used, validation metrics
+and checkpoint selection. A fixed seed initializes Python, NumPy and PyTorch;
+it does not guarantee deterministic CUDA execution or identical resumed runs.
+The Colab notebook defaults to seed 123 and patience 10. Early stopping is an
+additional experiment setting rather than a reproduction of the paper schedule.
+
 Evaluate the held-out test split and save metrics and generated captions:
 
 ```bash
