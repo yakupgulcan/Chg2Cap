@@ -144,7 +144,7 @@ class StackTransformer(nn.Module):
 
     def __init__(self, decoder_layer, num_layers, norm=None):
         super(StackTransformer, self).__init__()
-        self.layers = torch.nn.modules.transformer._get_clones(decoder_layer, num_layers)
+        self.layers = nn.ModuleList([copy.deepcopy(decoder_layer) for _ in range(num_layers)])
         self.num_layers = num_layers
         self.norm = norm
 
@@ -237,7 +237,7 @@ class DecoderTransformer(nn.Module):
         x = x.view(batch, channel, -1).permute(2, 0, 1)
         
         word_length = encoded_captions.size(1)
-        mask = torch.triu(torch.ones(word_length, word_length) * float('-inf'), diagonal=1)
+        mask = torch.triu(torch.ones(word_length, word_length, dtype=torch.bool), diagonal=1)
         mask = mask.cuda()
         tgt_pad_mask = (encoded_captions == self.word_vocab['<NULL>'])|(encoded_captions == self.word_vocab['<END>'])
         word_emb = self.vocab_embedding(encoded_captions) #(batch, length, feature_dim)
@@ -269,7 +269,7 @@ class DecoderTransformer(nn.Module):
 
         tgt = torch.zeros(batch, self.max_lengths).to(torch.int64).cuda()
 
-        mask = torch.triu(torch.ones(self.max_lengths, self.max_lengths) * float('-inf'), diagonal=1)
+        mask = torch.triu(torch.ones(self.max_lengths, self.max_lengths, dtype=torch.bool), diagonal=1)
         mask = mask.cuda()
         tgt[:, 0] = torch.LongTensor([self.word_vocab['<START>']] *batch).cuda() #(batch_size*k, 1)
         seqs = torch.LongTensor([[self.word_vocab['<START>']]] *batch).cuda()

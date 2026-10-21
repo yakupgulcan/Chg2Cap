@@ -7,7 +7,7 @@ import numpy as np
 import torch
 from torch.utils.data import DataLoader
 #import cv2 as cv
-from imageio import imread
+from imageio.v2 import imread
 from random import *
 
 class LEVIRCCDataset(Dataset):
@@ -28,6 +28,9 @@ class LEVIRCCDataset(Dataset):
         """
         self.mean=[100.6790,  99.5023,  84.9932]
         self.std=[50.9820, 48.4838, 44.7057]
+        list_path = os.path.join(list_path, '')
+        if token_folder is not None:
+            token_folder = os.path.join(token_folder, '')
         self.list_path = list_path
         self.split = split
         self.max_length = max_length
@@ -45,7 +48,7 @@ class LEVIRCCDataset(Dataset):
         if split =='train':
             for name in self.img_ids:
                 img_fileA = os.path.join(data_folder + '/' + split +'/A/' + name.split('-')[0])
-                img_fileB = img_fileA.replace('A', 'B')
+                img_fileB = os.path.join(data_folder, split, 'B', name.split('-')[0])
                 token_id = name.split('-')[-1]
                 if token_folder is not None:
                     token_file = os.path.join(token_folder + name.split('.')[0] + '.txt')
@@ -61,7 +64,7 @@ class LEVIRCCDataset(Dataset):
         elif split =='val':
             for name in self.img_ids:
                 img_fileA = os.path.join(data_folder + '/' + split +'/A/' + name)
-                img_fileB = img_fileA.replace('A', 'B')
+                img_fileB = os.path.join(data_folder, split, 'B', name.split('-')[0])
                 token_id = None
                 if token_folder is not None:
                     token_file = os.path.join(token_folder + name.split('.')[0] + '.txt')
@@ -77,7 +80,7 @@ class LEVIRCCDataset(Dataset):
         elif split =='test':
             for name in self.img_ids:
                 img_fileA = os.path.join(data_folder + '/' + split +'/A/' + name)
-                img_fileB = img_fileA.replace('A', 'B')
+                img_fileB = os.path.join(data_folder, split, 'B', name.split('-')[0])
                 token_id = None
                 if token_folder is not None:
                     token_file = os.path.join(token_folder + name.split('.')[0] + '.txt')
@@ -113,15 +116,15 @@ class LEVIRCCDataset(Dataset):
             caption = caption.read()
             caption_list = json.loads(caption)
 
-            #token = np.zeros((1, self.max_length), dtype=int)
+            #token = np.zeros((1, self.max_length), dtype=np.int64)
             #j = randint(0, len(caption_list) - 1)
             #tokens_encode = encode(caption_list[j], self.word_vocab,
             #            allow_unk=self.allow_unk == 1)
             #token[0, :len(tokens_encode)] = tokens_encode
             #token_len = len(tokens_encode)
 
-            token_all = np.zeros((len(caption_list),self.max_length),dtype=int)
-            token_all_len = np.zeros((len(caption_list),1),dtype=int)
+            token_all = np.zeros((len(caption_list),self.max_length),dtype=np.int64)
+            token_all_len = np.zeros((len(caption_list),1),dtype=np.int64)
             for j, tokens in enumerate(caption_list):
                 tokens_encode = encode(tokens, self.word_vocab,
                                     allow_unk=self.allow_unk == 1)
@@ -136,10 +139,10 @@ class LEVIRCCDataset(Dataset):
                 token = token_all[j]
                 token_len = token_all_len[j].item()
         else:
-            token_all = np.zeros(1,dtype=int)
-            token = np.zeros(1,dtype=int)
-            token_len = np.zeros(1,dtype=int)
-            token_all_len = np.zeros(1,dtype=int)
+            token_all = np.zeros(1,dtype=np.int64)
+            token = np.zeros(1,dtype=np.int64)
+            token_len = np.zeros(1,dtype=np.int64)
+            token_all_len = np.zeros(1,dtype=np.int64)
 
         return imgA.copy(), imgB.copy(), token_all.copy(), token_all_len.copy(), token.copy(), np.array(token_len), name
 

@@ -71,11 +71,16 @@ def get_eval_score(references, hypotheses):
            [[[str(x) for x in reft] for reft in reftmp] for reftmp in references]]
     score = []
     method = []
-    for scorer, method_i in scorers:
-        score_i, scores_i = scorer.compute_score(ref, hypo)
-        score.extend(score_i) if isinstance(score_i, list) else score.append(score_i)
-        method.extend(method_i) if isinstance(method_i, list) else method.append(method_i)
-        #print("{} {}".format(method_i, score_i))
+    try:
+        for scorer, method_i in scorers:
+            score_i, scores_i = scorer.compute_score(ref, hypo)
+            score.extend(score_i) if isinstance(score_i, list) else score.append(score_i)
+            method.extend(method_i) if isinstance(method_i, list) else method.append(method_i)
+            #print("{} {}".format(method_i, score_i))
+    finally:
+        for scorer, _ in scorers:
+            if isinstance(scorer, Meteor):
+                scorer.close()
     score_dict = dict(zip(method, score))
 
     return score_dict

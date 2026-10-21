@@ -7,7 +7,7 @@ import numpy as np
 import torch
 from torch.utils.data import DataLoader
 #import cv2 as cv
-from imageio import imread
+from imageio.v2 import imread
 from random import *
 
 class DubaiCCDataset(Dataset):
@@ -28,6 +28,9 @@ class DubaiCCDataset(Dataset):
         """
         self.mean=[156.0681, 115.0891, 92.0745]
         self.std=[76.5139, 52.0616, 44.4209]
+        list_path = os.path.join(list_path, '')
+        if token_folder is not None:
+            token_folder = os.path.join(token_folder, '')
         self.list_path = list_path
         self.split = split
         self.max_length = max_length
@@ -114,8 +117,8 @@ class DubaiCCDataset(Dataset):
             caption = caption.read()
             caption_list = json.loads(caption)
 
-            token_all = np.zeros((len(caption_list),self.max_length),dtype=int)
-            token_all_len = np.zeros((len(caption_list),1),dtype=int)
+            token_all = np.zeros((len(caption_list),self.max_length),dtype=np.int64)
+            token_all_len = np.zeros((len(caption_list),1),dtype=np.int64)
             for j, tokens in enumerate(caption_list):
                 tokens_encode = encode(tokens, self.word_vocab,
                                     allow_unk=self.allow_unk == 1)
@@ -130,10 +133,10 @@ class DubaiCCDataset(Dataset):
                 token = token_all[j]
                 token_len = token_all_len[j].item()
         else:
-            token_all = np.zeros(1,dtype=int)
-            token = np.zeros(1,dtype=int)
-            token_len = np.zeros(1,dtype=int)
-            token_all_len = np.zeros(1,dtype=int)
+            token_all = np.zeros(1,dtype=np.int64)
+            token = np.zeros(1,dtype=np.int64)
+            token_len = np.zeros(1,dtype=np.int64)
+            token_all_len = np.zeros(1,dtype=np.int64)
 
         return imgA.copy(), imgB.copy(), token_all.copy(), token_all_len.copy(), token.copy(), np.array(token_len), name
 

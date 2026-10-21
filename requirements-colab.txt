@@ -1,0 +1,6 @@
+# Keep Colab's matched torch/torchvision/CUDA installation.
+# A changed Colab runtime must pass the notebook's smoke checks.
+numpy>=1.26.4,<3
+imageio==2.34.2
+Pillow>=10.4.0,<13
+einops==0.7.0

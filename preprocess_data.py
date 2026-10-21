@@ -3,12 +3,14 @@ import os
 sys.path.insert(0, os.path.abspath('.'))
 import json
 import argparse
-import numpy as np
+from pathlib import Path
 
 parser = argparse.ArgumentParser()
 #parser.add_argument('--dataset', type = str, default = 'Dubai_CC', help= 'the name of the dataset')
 #parser.add_argument('--word_count_threshold', default=0, type=int)
-parser.add_argument('--dataset', type = str, default = 'LEVIR_CC', help= 'the name of the dataset')
+parser.add_argument('--dataset', choices=['LEVIR_CC', 'Dubai_CC'], default='LEVIR_CC')
+parser.add_argument('--dataset_root', default=None, help='Root containing captions and images')
+parser.add_argument('--output_dir', default=None, help='Prepared token/list directory')
 parser.add_argument('--word_count_threshold', default=5, type=int)
 
 SPECIAL_TOKENS = {
@@ -19,157 +21,60 @@ SPECIAL_TOKENS = {
 }
 
 def main(args):
+    root = Path(args.dataset_root or ('./datasets/' + args.dataset))
+    output = Path(args.output_dir or ('./data/' + args.dataset))
     if args.dataset == 'LEVIR_CC':
-        input_captions_json = '/root/Data/LEVIR_CC/LevirCCcaptions.json'
-        input_image_dir = '/root/Data/LEVIR_CC/images'
-        input_vocab_json = ''
-        output_vocab_json = 'vocab.json'
-        save_dir = './data/LEVIR_CC/'
-    elif args.dataset == 'Dubai_CC':
-        input_captions_json = '/root/Data/Dubai_CC/DubaiCC500impair/datasetDubaiCCPublic/description_jsontr_te_val/'
-        input_image_dir = '/root/Data/Dubai_CC/DubaiCC500impair/datasetDubaiCCPublic/RGB'
-        input_vocab_json = ''
-        output_vocab_json = 'vocab.json'
-        save_dir = './data/Dubai_CC/'
-    if not os.path.exists(save_dir):
-        os.makedirs(save_dir)
-    if not os.path.exists(os.path.join(save_dir + 'tokens/')):
-        os.makedirs(os.path.join(save_dir + 'tokens/'))
-    print('Loading captions')
-    assert args.dataset in {'LEVIR_CC', 'Dubai_CC'}
-
-    if args.dataset == 'LEVIR_CC':
-        with open(input_captions_json, 'r') as f:
-            data = json.load(f)
-        # Read image paths and captions for each image
-        max_length = -1
-        all_cap_tokens = []
-        for img in data['images']:
-            captions = []    
-            for c in img['sentences']:
-                # Update word frequency
-                assert len(c['raw']) > 0, 'error: some image has no caption'
-                captions.append(c['raw'])
-            tokens_list = []
-            for cap in captions:
-                cap_tokens = tokenize(cap,
-                                    add_start_token=True,
-                                    add_end_token=True,
-                                    punct_to_keep=[';', ','],
-                                    punct_to_remove=['?', '.'])
-                tokens_list.append(cap_tokens)
-                max_length = max(max_length, len(cap_tokens))
-            all_cap_tokens.append((img['filename'], tokens_list))
-
-        # Then save the tokenized captions in txt
-        print('Saving captions')
-        for img, tokens_list in all_cap_tokens:
-            i = img.split('.')[0]
-            token_len = len(tokens_list)
-            tokens_list = json.dumps(tokens_list)
-            f = open(os.path.join(save_dir + 'tokens/' + i + '.txt'), 'w')
-            f.write(tokens_list)
-            f.close()
-
-
-        #Considering each image pair has 5 annotations, two strategies can be adopted to generate list for training:
-        # a: creating training list with a self-defined token_id[0:4], each token list corresponds to specific captions;
-        # or b: randomly select one of the five captions during training;
-          
-        #    if i.split('_')[0] == 'train':
-        #        f = open(os.path.join(save_dir + 'train' + '.txt'), 'a')
-        #        f.write(img + '\n')
-        #        f.close
-
-            if i.split('_')[0] == 'train':
-                f = open(os.path.join(save_dir + 'train' + '.txt'), 'a')
-                for j in range(token_len):
-                    f.write(img + '-' + str(j) + '\n')
-                f.close
-
-            elif i.split('_')[0] == 'val':
-                f = open(os.path.join(save_dir + 'val' + '.txt'), 'a')
-                f.write(img + '\n')
-                f.close()
-            elif i.split('_')[0] == 'test':
-                f = open(os.path.join(save_dir + 'test' + '.txt'), 'a')
-                f.write(img + '\n')
-                f.close()     
-
-
-
-
-    elif args.dataset == 'Dubai_CC': 
-        filename = os.listdir(input_captions_json)
-        max_length = -1
-        all_cap_tokens = []
-
-        for j in range(len(filename)):
-            s_cap_tokens = []      
-            caption_json = os.path.join(input_captions_json, filename[j])
-            with open(caption_json, 'r') as f:
-                data = json.load(f)
-            for img in data['images']:
-                captions = []
-                for c in img['sentences']:
-                    # Update word frequency
-                    assert len(c['raw']) > 0, 'error: some image has no caption'
-                    captions.append(c['raw'])
-                tokens_list = []  
-                for cap in captions:
-                    cap_tokens = tokenize(cap,
-                                        add_start_token=True,
-                                        add_end_token=True,
-                                        punct_to_keep=[';', ','],
-                                        punct_to_remove=['?', '.'])
-                    tokens_list.append(cap_tokens)
-                    max_length = max(max_length, len(cap_tokens))
-                s_cap_tokens.append((img['filename'], tokens_list))
-                all_cap_tokens.append((img['filename'], tokens_list))
-            # Then save the tokenized captions in txt
-            print('Saving captions')
-            for img, tokens_list in s_cap_tokens:
-                i = img.split('.')[0]
-                token_len = len(tokens_list)
-                tokens_list = json.dumps(tokens_list)
-                f = open(os.path.join(save_dir + 'tokens/' + i + '.txt'), 'w')
-                f.write(tokens_list)
-                f.close()     
-
-                #if filename[j].split('_')[0] == 'Train':
-                #    f = open(os.path.join(save_dir + 'train' + '.txt'), 'a')
-                #    f.write(img + '\n')
-                #    f.close
-
-                if filename[j].split('_')[0] == 'Train':
-                    f = open(os.path.join(save_dir + 'train' + '.txt'), 'a')
-                    for s in range(token_len):
-                        f.write(img + '-' + str(s) + '\n')
-                    f.close
-
-                elif filename[j].split('_')[0] == 'Validation':
-                    f = open(os.path.join(save_dir + 'val' + '.txt'), 'a')
-                    f.write(img + '\n')
-                    f.close()
-                elif filename[j].split('_')[0] == 'Test':
-                    f = open(os.path.join(save_dir + 'test' + '.txt'), 'a')
-                    f.write(img + '\n')
-                    f.close()   
-
- 
-
-    print('max_length of the dataset:', max_length)
-    # Either create the vocab or load it from disk
-    if input_vocab_json == '':
-        print('Building vocab')
-        word_freq = build_vocab(all_cap_tokens,args.word_count_threshold)
+        sources = [(root / 'LevirCCcaptions.json', None)]
     else:
-        print('Loading vocab')
-        with open(input_vocab_json, 'r') as f:
-            word_freq = json.load(f)
-    if output_vocab_json != '':
-        with open(os.path.join(save_dir + output_vocab_json), 'w') as f:
-            json.dump(word_freq, f)
+        captions = root / 'DubaiCC500impair/datasetDubaiCCPublic/description_jsontr_te_val'
+        split_map = {'Train': 'train', 'Validation': 'val', 'Test': 'test'}
+        sources = [(path, split_map[path.name.split('_')[0]]) for path in sorted(captions.glob('*.json'))]
+    if not sources:
+        raise ValueError('No caption JSON files found.')
+    all_tokens = []
+    lists = {'train': [], 'val': [], 'test': []}
+    max_length = 0
+    for source, source_split in sources:
+        with source.open(encoding='utf-8') as stream:
+            rows = json.load(stream)['images']
+        for row in rows:
+            name = row['filename']
+            if Path(name).name != name:
+                raise ValueError('Caption filename must be a basename: ' + name)
+            split = source_split or name.split('_')[0]
+            if split not in lists:
+                raise ValueError('Unknown split: ' + split)
+            if args.dataset == 'LEVIR_CC':
+                for phase in ('A', 'B'):
+                    image = root / 'images' / split / phase / name
+                    if not image.is_file():
+                        raise FileNotFoundError(image)
+            tokens = []
+            for sentence in row['sentences']:
+                if not sentence['raw'].strip():
+                    raise ValueError('Empty caption for ' + name)
+                caption = tokenize(sentence['raw'], punct_to_keep=[';', ','], punct_to_remove=['?', '.'])
+                tokens.append(caption)
+                max_length = max(max_length, len(caption))
+            if not tokens:
+                raise ValueError('No captions for ' + name)
+            all_tokens.append((name, tokens))
+            lists[split].extend([name + '-' + str(i) for i in range(len(tokens))] if split == 'train' else [name])
+    if len({name for name, _ in all_tokens}) != len(all_tokens):
+        raise ValueError('Duplicate image filenames in captions.')
+    vocab = build_vocab(all_tokens, args.word_count_threshold)
+    (output / 'tokens').mkdir(parents=True, exist_ok=True)
+    for name, tokens in all_tokens:
+        (output / 'tokens' / (Path(name).stem + '.txt')).write_text(json.dumps(tokens), encoding='utf-8')
+    # Rewrite lists rather than appending: repeated preprocessing does not duplicate rows.
+    for split, names in lists.items():
+        (output / (split + '.txt')).write_text(''.join(name + '\n' for name in names), encoding='utf-8')
+    (output / 'vocab.json').write_text(json.dumps(vocab), encoding='utf-8')
+    manifest = {'dataset': args.dataset, 'word_count_threshold': args.word_count_threshold,
+                'max_length': max_length, 'vocab_size': len(vocab),
+                'list_rows': {split: len(names) for split, names in lists.items()}}
+    (output / 'manifest.json').write_text(json.dumps(manifest, indent=2), encoding='utf-8')
+    print(json.dumps(manifest, indent=2))
 
 
 def tokenize(s, delim=' ',add_start_token=True, 
