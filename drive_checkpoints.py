@@ -3,6 +3,11 @@ import hashlib
 from pathlib import Path
 import uuid
 
+BS = chr(92)  # backslash, for escaping Drive query strings
+# Colab shares one Drive API quota among its users; rate-limit errors are retried with
+# exponential backoff (up to a few minutes) instead of stopping the run.
+RETRIES = 8
+
 
 def drive_service():
     import google.auth
@@ -23,7 +28,7 @@ class DriveCheckpoints:
     def __init__(self, folder_id, service=None):
         self.folder_id = folder_id
         self.service = service if service is not None else drive_service()
-        folder = self.service.files().get(fileId=folder_id, fields='id,mimeType,trashed').execute()
+        folder = self.service.files().get(fileId=folder_id, fields='id,mimeType,trashed').execute(num_retries=RETRIES)
         if folder['mimeType'] != 'application/vnd.google-apps.folder' or folder.get('trashed'):
             raise ValueError('Checkpoint destination must be an active Drive folder.')
 
@@ -35,7 +40,7 @@ class DriveCheckpoints:
             response = self.service.files().list(
                 q=f"'{self.folder_id}' in parents and name = '{name}' and trashed = false",
                 fields='nextPageToken,files(id,name,size,md5Checksum,parents)',
-                pageToken=token, pageSize=100).execute()
+                pageToken=token, pageSize=100).execute(num_retries=RETRIES)
             result.extend(response.get('files', []))
             token = response.get('nextPageToken')
             if not token:
@@ -52,16 +57,16 @@ class DriveCheckpoints:
             fields='id,size,md5Checksum')
         uploaded = None
         while uploaded is None:
-            _, uploaded = request.next_chunk(num_retries=3)
+            _, uploaded = request.next_chunk(num_retries=RETRIES)
         if int(uploaded.get('size', -1)) != path.stat().st_size or uploaded.get('md5Checksum') != checksum(path):
             raise RuntimeError('Drive upload verification failed; previous checkpoints were retained.')
-        self.service.files().update(fileId=uploaded['id'], body={'name': path.name}, fields='id').execute()
+        self.service.files().update(fileId=uploaded['id'], body={'name': path.name}, fields='id').execute(num_retries=RETRIES)
         for old in previous:
-            current = self.service.files().get(fileId=old['id'], fields='name,parents,trashed').execute()
+            current = self.service.files().get(fileId=old['id'], fields='name,parents,trashed').execute(num_retries=RETRIES)
             if current['name'] != path.name or self.folder_id not in current.get('parents', []) or current.get('trashed'):
                 raise RuntimeError('Previous checkpoint changed; automatic deletion stopped.')
             # Delete only the captured previous checkpoint IDs, after verifying the new upload.
-            self.service.files().delete(fileId=old['id']).execute()
+            self.service.files().delete(fileId=old['id']).execute(num_retries=RETRIES)
         print(f'Drive checkpoint saved: {path.name}', flush=True)
 
     def download(self, name, destination):
@@ -79,9 +84,38 @@ class DriveCheckpoints:
                                               chunksize=64 * 1024 * 1024)
                 done = False
                 while not done:
-                    _, done = transfer.next_chunk(num_retries=3)
+                    _, done = transfer.next_chunk(num_retries=RETRIES)
             if temporary.stat().st_size != int(item['size']) or checksum(temporary) != item['md5Checksum']:
                 raise RuntimeError('Downloaded checkpoint failed verification.')
             temporary.replace(destination)
         finally:
             temporary.unlink(missing_ok=True)
+
+
+def resolve_folder(service, path, wait_seconds=0):
+    """Drive folder ID for an existing path under /content/drive/MyDrive.
+
+    Folders are created through the mounted drive, never here: creating one through the
+    API while the mount is still syncing its own copy leaves two folders with the same name.
+    wait_seconds allows for that sync delay.
+    """
+    import time
+    deadline = time.monotonic() + wait_seconds
+    while True:
+        folder_id = 'root'
+        for part in Path(path).relative_to('/content/drive/MyDrive').parts:
+            escaped = part.replace(BS, BS + BS).replace("'", BS + "'")
+            matches = service.files().list(
+                q=f"'{folder_id}' in parents and name = '{escaped}' and "
+                  "mimeType = 'application/vnd.google-apps.folder' and trashed = false",
+                fields='files(id)', pageSize=100).execute(num_retries=RETRIES).get('files', [])
+            if len(matches) > 1:
+                raise RuntimeError(f'Multiple Drive folders named {part}; use a unique path.')
+            folder_id = matches[0]['id'] if matches else None
+            if folder_id is None:
+                break
+        if folder_id is not None:
+            return folder_id
+        if time.monotonic() >= deadline:
+            raise FileNotFoundError(f'Drive folder not found: {path}')
+        time.sleep(3)

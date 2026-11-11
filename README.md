@@ -127,7 +127,7 @@ resume; older checkpoints without these fields start the counter at zero.
 `training_epoch_XXX.json` records the learning rates used, validation metrics
 and checkpoint selection. A fixed seed initializes Python, NumPy and PyTorch;
 it does not guarantee deterministic CUDA execution or identical resumed runs.
-The Colab notebook defaults to seed 123 and patience 10. Early stopping is an
+The Colab notebook defaults to seed 123 and patience 5. Early stopping is an
 additional experiment setting rather than a reproduction of the paper schedule.
 
 Evaluate the held-out test split and save metrics and generated captions:
@@ -142,34 +142,46 @@ Adjust training batch size and worker count for the available hardware.
 
 ### Google Colab
 
-[Chg2Cap_Colab_Training.ipynb](Chg2Cap_Colab_Training.ipynb) provides a GPU training
-and evaluation workflow. Configure the repository URL, branch/tag/commit,
-dataset Drive URL or folder/ZIP path, and experiment parameters before running
-the cells in order. The selected Git ref must contain the notebook's supporting
-scripts.
+Open [Chg2Cap_Colab_Training.ipynb](Chg2Cap_Colab_Training.ipynb) in Colab, select a
+GPU runtime, edit the configuration cell and run all cells. The notebook only holds
+settings; the logic lives in this repository at the revision named by `REPO_REF`.
+Colab's installed PyTorch/torchvision pair is kept; additional packages come from
+`requirements-colab.txt`.
 
-The notebook retains Colab's installed PyTorch/torchvision pair and installs
-additional packages from `requirements-colab.txt`. It checks GPU and METEOR
-availability and provides a small training, resume and evaluation smoke check.
-Code, images and working checkpoints use runtime storage; uploaded checkpoints,
-logs, prepared split lists,
-vocabulary and evaluation results are saved to Google Drive. Environment records
-include Python, PyTorch, torchvision, CUDA build, GPU/driver and Git commit.
+The complete notebook workflow (data preparation, training with Drive checkpoint
+uploads, test evaluation) has been run on Colab with Python 3.13.16, PyTorch 2.14.1+cu130
+and torchvision 0.29.1+cu130 on an NVIDIA A100 (November 2026).
 
-For recovery in a new runtime, reuse the experiment name, enable `RESUME`, and
-set the total epoch count beyond the completed count. Checkpoints are downloaded
-from Drive and verified before loading. Colab runtimes vary; run the smoke check
-before a full training job.
+Each run creates `Chg2Cap_Outputs/runs/<experiment>_seed<seed>_<time>/` in Google Drive:
 
-The notebook authenticates the Drive API and passes `--drive_checkpoint_folder_id`
-to training with a local `--savepath`. Each upload is verified by size and MD5
-checksum before the previous `last.pth` or `best.pth` in that experiment's
-checkpoint folder is permanently deleted. Previous files do not enter the trash.
-Upload or deletion errors stop training; the verified new checkpoint remains
-available if deletion fails. Allow storage for both copies during replacement.
-Existing trash and other experiment folders are left untouched. Use one training
-process per experiment folder. Smoke-check checkpoints stay on runtime storage;
-training records are copied to Drive when the training cell exits.
+| File | Content |
+| --- | --- |
+| `run.json` | Code commit, all notebook settings, dataset source and SHA-256, seed, environment, best validation scores, test scores and the evaluated checkpoint's checksum |
+| `packages.txt` | Installed Python packages |
+| `data.log`, `train.log`, `eval.log` | Complete output of each step |
+| `epochs/` | Learning rates and validation scores per epoch |
+| `checkpoints/` | `last.pth` and `best.pth` |
+| `eval_results/<time>/` | Test metrics and generated captions |
+
+Notes:
+- To resume, set `RESUME_CHECKPOINT` to the Drive path of an earlier `last.pth` and
+  `TOTAL_EPOCHS` to the total target. The resumed run writes to a new run folder.
+  Random-number states are not restored, so it is not identical to an uninterrupted run.
+- Model arguments that differ from the defaults go in `MODEL_ARGS`; they are passed to
+  both `train.py` and `test.py`, which verify them against the checkpoint.
+- Checkpoints are saved on runtime storage and uploaded through the Drive API. Each
+  upload is verified by size and MD5 checksum before the previous `last.pth` or
+  `best.pth` in that run's folder is permanently deleted (it does not enter the trash).
+  Upload or deletion errors stop training.
+- `RUN_SMOKE_CHECK=True` runs a short train, resume and test check on four image pairs
+  before the full training.
+
+### Development workflow
+
+- `main` always holds a working baseline. Results that are reported come from a tag or
+  commit on GitHub, never from uncommitted code (`run.json` records `uncommitted_changes`).
+- New methods are developed on a separate long-lived branch and its topic branches, not
+  on `main`. To train a branch in Colab, push it and set `REPO_REF` to its name or commit.
 
 ### Paper
 **[Changes to Captions: An Attentive Network for Remote Sensing Change Captioning](https://arxiv.org/abs/2304.01091)**
