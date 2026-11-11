@@ -148,6 +148,10 @@ settings; the logic lives in this repository at the revision named by `REPO_REF`
 Colab's installed PyTorch/torchvision pair is kept; additional packages come from
 `requirements-colab.txt`.
 
+The complete notebook workflow (data preparation, training with Drive checkpoint
+uploads, test evaluation) has been run on Colab with Python 3.13.16, PyTorch 2.14.1+cu130
+and torchvision 0.29.1+cu130 on an NVIDIA A100 (November 2026).
+
 Each run creates `Chg2Cap_Outputs/runs/<experiment>_seed<seed>_<time>/` in Google Drive:
 
 | File | Content |
