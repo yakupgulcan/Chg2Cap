@@ -3,6 +3,8 @@ import hashlib
 from pathlib import Path
 import uuid
 
+BS = chr(92)  # backslash, for escaping Drive query strings
+
 
 def drive_service():
     import google.auth
@@ -85,3 +87,32 @@ class DriveCheckpoints:
             temporary.replace(destination)
         finally:
             temporary.unlink(missing_ok=True)
+
+
+def resolve_folder(service, path, wait_seconds=0):
+    """Drive folder ID for an existing path under /content/drive/MyDrive.
+
+    Folders are created through the mounted drive, never here: creating one through the
+    API while the mount is still syncing its own copy leaves two folders with the same name.
+    wait_seconds allows for that sync delay.
+    """
+    import time
+    deadline = time.monotonic() + wait_seconds
+    while True:
+        folder_id = 'root'
+        for part in Path(path).relative_to('/content/drive/MyDrive').parts:
+            escaped = part.replace(BS, BS + BS).replace("'", BS + "'")
+            matches = service.files().list(
+                q=f"'{folder_id}' in parents and name = '{escaped}' and "
+                  "mimeType = 'application/vnd.google-apps.folder' and trashed = false",
+                fields='files(id)', pageSize=100).execute().get('files', [])
+            if len(matches) > 1:
+                raise RuntimeError(f'Multiple Drive folders named {part}; use a unique path.')
+            folder_id = matches[0]['id'] if matches else None
+            if folder_id is None:
+                break
+        if folder_id is not None:
+            return folder_id
+        if time.monotonic() >= deadline:
+            raise FileNotFoundError(f'Drive folder not found: {path}')
+        time.sleep(3)
