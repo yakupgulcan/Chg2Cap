@@ -59,14 +59,23 @@ def load_state(path):
 
 
 def run_logged(command, log_path, cwd=None):
-    """Display merged stdout/stderr and persist it; stop the child on interruption."""
+    """Display merged stdout/stderr and persist it; stop the child on interruption.
+
+    The display gets the raw output, so progress bars update in place. The log gets
+    only the final state of each line: a progress bar is one line instead of thousands.
+    """
     import codecs
     log_path = Path(log_path)
     log_path.parent.mkdir(parents=True, exist_ok=True)
+    pending = ''
+
+    def final_state(line):
+        return line.rstrip('\r').rsplit('\r', 1)[-1]
+
     with log_path.open('a', encoding='utf-8', newline='') as log:
         log.write(f"\nStarting: {command!r}\n")
         log.flush()
-        # Binary reads keep progress-bar carriage returns intact.
+        # Binary reads keep carriage returns; text mode would turn them into newlines.
         with subprocess.Popen(command, cwd=cwd, stdout=subprocess.PIPE,
                               stderr=subprocess.STDOUT) as process:
             try:
@@ -74,7 +83,8 @@ def run_logged(command, log_path, cwd=None):
                 while chunk := process.stdout.read1(8192):
                     output = decoder.decode(chunk)
                     print(output, end='', flush=True)
-                    log.write(output)
+                    *lines, pending = (pending + output).split('\n')
+                    log.writelines(final_state(line) + '\n' for line in lines)
                     log.flush()
                 returncode = process.wait()
             except BaseException:
@@ -85,6 +95,9 @@ def run_logged(command, log_path, cwd=None):
                     process.kill()
                     process.wait()
                 raise
+            finally:
+                if final_state(pending):
+                    log.write(final_state(pending) + '\n')
     if returncode:
         raise subprocess.CalledProcessError(returncode, command)
 
