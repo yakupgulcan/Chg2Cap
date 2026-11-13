@@ -70,7 +70,8 @@ def main(args):
     encoder_optimizer = torch.optim.Adam(params=encoder.parameters(),
                                         lr=args.encoder_lr) if args.fine_tune_encoder else None
     encoder_trans = AttentiveEncoder(n_layers =args.n_layers, feature_size=[args.feat_size, args.feat_size, args.encoder_dim],
-                                        heads=args.n_heads, hidden_dim=args.hidden_dim, attention_dim=args.attention_dim, dropout=args.dropout)
+                                        heads=args.n_heads, hidden_dim=args.hidden_dim, attention_dim=args.attention_dim, dropout=args.dropout,
+                                        harmonic_alpha=args.harmonic_alpha)
     encoder_trans_optimizer = torch.optim.Adam(params=filter(lambda p: p.requires_grad, encoder_trans.parameters()),
                                         lr=args.encoder_lr)
     decoder = DecoderTransformer(encoder_dim=args.encoder_dim, feature_dim=args.feature_dim, vocab_size=len(word_vocab), max_lengths=args.max_length, word_vocab=word_vocab, n_head=args.n_heads,
@@ -356,5 +357,7 @@ if __name__ == '__main__':
     parser.add_argument('--hidden_dim', type=int, default=512)
     parser.add_argument('--attention_dim', type=int, default=2048)
     parser.add_argument('--feature_dim', type=int, default=2048)
+    parser.add_argument('--harmonic_alpha', type=float, default=0.0,
+                        help='harmonic smoothing of the CNN features on a shared graph; 0 disables it.')
     args = parser.parse_args()
     main(args)

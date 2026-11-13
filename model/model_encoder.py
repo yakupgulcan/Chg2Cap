@@ -3,6 +3,8 @@ from torch import nn
 import torchvision.models as models
 from einops import rearrange
 
+from model.harmonic import harmonic_smooth
+
 class Encoder(nn.Module):
     """
     Encoder.
@@ -165,8 +167,9 @@ class AttentiveEncoder(nn.Module):
     """
     One visual transformer block
     """
-    def __init__(self, n_layers, feature_size, heads, hidden_dim, attention_dim = 512, dropout = 0.):
+    def __init__(self, n_layers, feature_size, heads, hidden_dim, attention_dim = 512, dropout = 0., harmonic_alpha = 0.):
         super(AttentiveEncoder, self).__init__()
+        self.harmonic_alpha = harmonic_alpha  # strength of the harmonic smoothing of the CNN features; 0 disables it
         h_feat, w_feat, channels = feature_size
         
         self.h_embedding = nn.Embedding(h_feat, int(channels/2))
@@ -188,6 +191,7 @@ class AttentiveEncoder(nn.Module):
 
     def forward(self, img1, img2):
         batch, c, h, w = img1.shape
+        img1, img2 = harmonic_smooth(img1, img2, self.harmonic_alpha)
         pos_h = torch.arange(h).cuda()
         pos_w = torch.arange(w).cuda()
         embed_h = self.w_embedding(pos_h)

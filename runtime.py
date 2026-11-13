@@ -11,7 +11,7 @@ import torchvision
 
 MODEL_ARGUMENTS = ('network', 'encoder_dim', 'feat_size', 'n_heads', 'n_layers',
                    'decoder_n_layers', 'hidden_dim', 'attention_dim', 'feature_dim',
-                   'max_length', 'dropout', 'data_name', 'fine_tune_encoder')
+                   'max_length', 'dropout', 'data_name', 'fine_tune_encoder', 'harmonic_alpha')
 
 
 def command_output(command):

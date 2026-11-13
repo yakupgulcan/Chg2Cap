@@ -45,7 +45,8 @@ def main(args):
     validate_checkpoint(checkpoint, args, word_vocab)
     encoder = Encoder(args.network, pretrained=False)
     encoder_trans = AttentiveEncoder(n_layers =args.n_layers, feature_size=[args.feat_size, args.feat_size, args.encoder_dim],
-                    heads=args.n_heads, hidden_dim=args.hidden_dim, attention_dim=args.attention_dim, dropout=args.dropout)
+                    heads=args.n_heads, hidden_dim=args.hidden_dim, attention_dim=args.attention_dim, dropout=args.dropout,
+                    harmonic_alpha=args.harmonic_alpha)
     decoder = DecoderTransformer(encoder_dim=args.encoder_dim, feature_dim=args.feature_dim, vocab_size=len(word_vocab), max_lengths=args.max_length, word_vocab=word_vocab, n_head=args.n_heads,
                     n_layers= args.decoder_n_layers, dropout=args.dropout)
     encoder.load_state_dict(checkpoint['encoder_dict'])
@@ -243,6 +244,8 @@ if __name__ == '__main__':
     parser.add_argument('--hidden_dim', type=int, default=512)
     parser.add_argument('--attention_dim', type=int, default=2048)
     parser.add_argument('--feature_dim', type=int, default=2048)
+    parser.add_argument('--harmonic_alpha', type=float, default=0.0,
+                        help='harmonic smoothing of the CNN features on a shared graph; 0 disables it.')
     parser.add_argument('--dropout', type=float, default=0.1, help='dropout')
     # Test
     parser.add_argument('--test_batchsize', type=int, default=1, help='batch_size for validation')

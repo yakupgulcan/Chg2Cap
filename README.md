@@ -169,6 +169,10 @@ Notes:
   Random-number states are not restored, so it is not identical to an uninterrupted run.
 - Model arguments that differ from the defaults go in `MODEL_ARGS`; they are passed to
   both `train.py` and `test.py`, which verify them against the checkpoint.
+- `MODEL_ARGS = ["--harmonic_alpha", "1"]` smooths the two CNN feature maps on one shared
+  8-neighbour graph before the attentive encoder (`model/harmonic.py`): `(I + alpha*L) S = F`.
+  `0` is the unchanged baseline. The graph has 8x8 nodes, so useful values are roughly 0.1 to 5;
+  from about 100 on, each channel collapses to almost a single value per image.
 - Checkpoints are saved on runtime storage and uploaded through the Drive API. Each
   upload is verified by size and MD5 checksum before the previous `last.pth` or
   `best.pth` in that run's folder is permanently deleted (it does not enter the trash).
