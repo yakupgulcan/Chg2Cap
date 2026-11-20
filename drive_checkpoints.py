@@ -1,6 +1,7 @@
 """Verified checkpoint uploads with permanent replacement in one Drive folder."""
 import hashlib
 from pathlib import Path
+import time
 import uuid
 
 BS = chr(92)  # backslash, for escaping Drive query strings
@@ -22,6 +23,23 @@ def checksum(path):
         for chunk in iter(lambda: stream.read(8 * 1024 * 1024), b''):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def next_chunk(request):
+    """One resumable-upload step that also survives network errors.
+
+    `next_chunk(num_retries=...)` retries only HTTP error responses; a timeout or dropped
+    connection while sending a chunk is raised immediately. The request then marks itself
+    as interrupted, and the next call asks Drive how much arrived and continues from there.
+    """
+    for attempt in range(RETRIES + 1):
+        try:
+            return request.next_chunk(num_retries=RETRIES)
+        except OSError as error:  # TimeoutError, ConnectionError and ssl.SSLError
+            if attempt == RETRIES:
+                raise
+            print(f'Drive upload interrupted ({error!r}); resuming in {2 ** attempt} s.', flush=True)
+            time.sleep(2 ** attempt)
 
 
 class DriveCheckpoints:
@@ -57,7 +75,7 @@ class DriveCheckpoints:
             fields='id,size,md5Checksum')
         uploaded = None
         while uploaded is None:
-            _, uploaded = request.next_chunk(num_retries=RETRIES)
+            _, uploaded = next_chunk(request)
         if int(uploaded.get('size', -1)) != path.stat().st_size or uploaded.get('md5Checksum') != checksum(path):
             raise RuntimeError('Drive upload verification failed; previous checkpoints were retained.')
         self.service.files().update(fileId=uploaded['id'], body={'name': path.name}, fields='id').execute(num_retries=RETRIES)
